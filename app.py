@@ -14,6 +14,15 @@ CORS(app,supports_credentials= True)
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSION = {'pdf', 'doc', 'docx', 'txt', 'ppt', 'pptx'}
 
+
+#check if file extention is allowed
+def allowed_file(filename):
+    return '.' in filename and \
+filename.rsplit('.',1)[1].lower() in ALLOWED_EXTENSION #split right side after '.' 1 -refers to slice 1 content after dot and [1] refers to take the 1th indexed value from sliced list
+#['notes.pdf']=['notes','pdf']=[1]=['pdf']
+
+
+
 #rishimina 8500
 
 if not os.path.exists(UPLOAD_FOLDER):
@@ -194,6 +203,65 @@ def get_current_user():
             "role" : session['role']
         }
     })
+
+
+#UPLOAD RESOURCE - ONLY WHEN LOGGED IN
+@app.route('/resources' , methods=['POST'])
+def upload_resource():
+    #check login status
+    if 'user_id' not in session:
+        return jsonify({"error":" Please Login first"}),401
+    
+    #check if file is in request
+    if 'file' not in request.files:
+        return jsonify({"error":" No file provided"}),400
+    
+    file = request.files['file']
+
+    #check if file was actually selected
+    if file.filename=='':
+        return jsonify({"error":" No file selected"}),400
+        
+    #get form data
+    title = request.form.get('title')
+    description = request.form.get('description' , '')
+    subject = request.form.get('subject' , '')
+
+    if not title:
+        return jsonify({"error":" Title is required"}),400
+
+    #check if file type is allowed
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+
+        unique_filename = f"{session['user_id']}_{datetime.now().timestamp()}_{filename}"
+
+        #savig file
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'],unique_filename)
+        file.save(file_path)
+
+
+        #save to database
+        conn = sqlite3.connect('studybuddy.db')
+        cursor = conn.cursor()
+
+        cursor.execute(''' 
+                    INSERT INTO resources (user_id,title,description,subject,filename,file_path,created_at)  
+                       VALUES (?,?,?,?,?,?,?)
+                        ''',(session['user_id'],title,description,subject,filename,file_path,datetime.now().isoformat()))
+        
+        conn.commit()
+        resource_id = cursor.lastrowid
+        conn.close()
+
+
+        return jsonify({
+            "message" : "Resource uploaded successfully",
+            "resource_id" :resource_id
+        }),201
+    #else
+    return jsonify({"error":" File is not allowed.Use other extention"}),400
+    
 
 if __name__ == "__main__":
     import os
